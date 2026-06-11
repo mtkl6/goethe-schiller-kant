@@ -1,189 +1,238 @@
 #!/usr/bin/env python3
 """
-Lädt alle verfügbaren deutschen Werke von Goethe, Schiller und Kant
-von Project Gutenberg und kombiniert sie in einer einzigen TXT-Datei.
+Lädt alle Werke von Goethe, Schiller und Kant von Projekt Gutenberg-DE
+(projekt-gutenberg.org) und kombiniert sie in einer einzigen TXT-Datei.
 
-Verwendung: python3 download_klassiker_de.py
+Im Gegensatz zur US-Variante (gutenberg.org) sind hier alle Texte deutsche
+Originale — keine englischen Übersetzungen.
+
+Verwendung: python3 data.py                  (alle Autoren, input.txt neu schreiben)
+            python3 data.py --only ECKERMANN (nur ein Autor, an input.txt anhängen)
+Ausgabe:    input.txt
 """
 
-import urllib.request
+import re
+import sys
 import time
-import os
+import urllib.error
+import urllib.request
+from pathlib import Path
 
-WERKE = {
-    "GOETHE": [
-        (2229,  "Faust - Erster Teil"),
-        (2230,  "Faust - Zweiter Teil"),
-        (2054,  "Die Leiden des jungen Werthers"),
-        (2403,  "Wilhelm Meisters Lehrjahre"),
-        (2404,  "Wilhelm Meisters Wanderjahre"),
-        (14444, "Die Wahlverwandtschaften"),
-        (5155,  "Götz von Berlichingen"),
-        (30719, "Iphigenie auf Tauris"),
-        (19956, "Egmont"),
-        (3232,  "Torquato Tasso"),
-        (16796, "Reineke Fuchs"),
-        (2407,  "Hermann und Dorothea"),
-        (1396,  "Die Leiden des jungen Werthers - Band 2"),
-        (22367, "Gedichte (Auswahl)"),
-        (2406,  "Dichtung und Wahrheit"),
-    ],
-    "SCHILLER": [
-        (6788,  "Die Räuber"),
-        (6791,  "Kabale und Liebe"),
-        (6787,  "Don Karlos"),
-        (6789,  "Maria Stuart"),
-        (6792,  "Die Jungfrau von Orleans"),
-        (6793,  "Wilhelm Tell"),
-        (6794,  "Wallensteins Lager"),
-        (6795,  "Die Piccolomini"),
-        (6796,  "Wallensteins Tod"),
-        (6797,  "Die Braut von Messina"),
-        (47983, "Über die ästhetische Erziehung des Menschen"),
-        (6800,  "Über naive und sentimentalische Dichtung"),
-        (7984,  "Geschichte des Dreißigjährigen Krieges"),
-        (6801,  "Gedichte (Auswahl)"),
-    ],
-    "KANT": [
-        (6342,  "Kritik der reinen Vernunft"),
-        (6343,  "Kritik der praktischen Vernunft"),
-        (6344,  "Kritik der Urteilskraft"),
-        (6345,  "Grundlegung zur Metaphysik der Sitten"),
-        (46679, "Zum ewigen Frieden"),
-        (36048, "Prolegomena zu einer jeden künftigen Metaphysik"),
-        (19404, "Die Metaphysik der Sitten"),
-        (15269, "Anthropologie in pragmatischer Hinsicht"),
-    ],
-}
+from bs4 import BeautifulSoup
 
-OUTPUT_FILE = "alle_klassiker_deutsch.txt"
-URL_TEMPLATES = [
-    "https://www.gutenberg.org/cache/epub/{id}/pg{id}.txt",
-    "https://www.gutenberg.org/files/{id}/{id}-0.txt",
-    "https://www.gutenberg.org/files/{id}/{id}.txt",
+# ---- konfiguration ---------------------------------------------------------
+
+BASE = "https://projekt-gutenberg.org"
+OUTPUT_FILE = "input.txt"
+USER_AGENT = "Mozilla/5.0 (compatible; dichter-denker/1.0)"
+REQUEST_DELAY_SEC = 1.0  # höflich zur Quelle
+
+# Autoren: (anzeigename, autorenseiten-slug, buch-pfad-slug)
+# Slugs ggf. anpassen, falls eine Autorenseite nicht gefunden wird (0 Werke).
+AUTHORS = [
+    ("GOETHE",     "goethe",     "johann-wolfgang-von-goethe"),
+    ("SCHILLER",   "schiller",   "friedrich-schiller"),
+    ("KANT",       "kant",       "immanuel-kant"),
+    ("HOELDERLIN", "hoelderl",   "friedrich-hoelderlin"),
+    ("KLEIST",     "kleist",     "heinrich-von-kleist"),
+    ("LESSING",    "lessing",    "gotthold-ephraim-lessing"),
+    ("NOVALIS",    "novalis",    "novalis"),
+    ("HERDER",     "herder",     "johann-gottfried-herder"),
+    ("ECKERMANN",  "eckerman",   "johann-peter-eckermann"),
 ]
 
+# ---- http helpers ----------------------------------------------------------
 
-def download_text(gutenberg_id: int) -> str | None:
-    for url_template in URL_TEMPLATES:
-        url = url_template.format(id=gutenberg_id)
-        try:
-            req = urllib.request.Request(
-                url,
-                headers={"User-Agent": "Mozilla/5.0 (compatible; klassiker-downloader/1.0)"}
-            )
-            with urllib.request.urlopen(req, timeout=15) as response:
-                raw = response.read()
-                for enc in ("utf-8", "latin-1", "windows-1252"):
-                    try:
-                        return raw.decode(enc)
-                    except UnicodeDecodeError:
-                        continue
-        except Exception:
-            continue
-    return None
+def fetch(url: str) -> str | None:
+    """GET als UTF-8 String. None bei Fehler / 404."""
+    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    try:
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            return resp.read().decode("utf-8", errors="replace")
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            return None
+        print(f"    HTTP {e.code} bei {url}")
+        return None
+    except Exception as e:
+        print(f"    Fehler bei {url}: {e}")
+        return None
 
 
-def strip_gutenberg_header_footer(text: str) -> str:
-    start_markers = [
-        "*** START OF THE PROJECT GUTENBERG",
-        "***START OF THE PROJECT GUTENBERG",
-        "*** START OF THIS PROJECT GUTENBERG",
-        "*** ANFANG DIESES PROJECT GUTENBERG",
-    ]
-    end_markers = [
-        "*** END OF THE PROJECT GUTENBERG",
-        "***END OF THE PROJECT GUTENBERG",
-        "*** END OF THIS PROJECT GUTENBERG",
-        "*** ENDE DIESES PROJECT GUTENBERG",
-        "End of the Project Gutenberg",
-        "End of Project Gutenberg",
-    ]
+# ---- discovery -------------------------------------------------------------
 
-    start_pos = 0
-    for marker in start_markers:
-        idx = text.find(marker)
-        if idx != -1:
-            newline = text.find("\n", idx)
-            if newline != -1:
-                start_pos = newline + 1
-            break
-
-    end_pos = len(text)
-    for marker in end_markers:
-        idx = text.find(marker)
-        if idx != -1:
-            end_pos = idx
-            break
-
-    return text[start_pos:end_pos].strip()
+def list_book_urls(author_page_slug: str, book_path_slug: str) -> list[str]:
+    """Findet alle Buch-URLs eines Autors über dessen Autorenseite."""
+    url = f"{BASE}/autoren/namen/{author_page_slug}.html"
+    html = fetch(url)
+    if not html:
+        return []
+    soup = BeautifulSoup(html, "html.parser")
+    needle = f"/authors/{book_path_slug}/books/"
+    seen: set[str] = set()
+    urls: list[str] = []
+    for a in soup.find_all("a", href=True):
+        href = a["href"]
+        # Nur Buch-Startseiten, keine /chapter/N Unterseiten
+        if needle in href and "/chapter/" not in href:
+            href = href.split("?")[0].split("#")[0].rstrip("/")
+            if href not in seen:
+                seen.add(href)
+                urls.append(href)
+    return urls
 
 
-def separator(author: str, title: str, gutenberg_id: int) -> str:
+def list_chapter_urls(book_url: str) -> tuple[str, list[str]]:
+    """Liefert (titel, [chapter_urls])."""
+    html = fetch(book_url)
+    if not html:
+        return ("", [])
+    soup = BeautifulSoup(html, "html.parser")
+    title = (soup.title.string if soup.title else "").strip()
+    title = re.sub(r"\s*[–—-]\s*Projekt Gutenberg.*$", "", title, flags=re.I)
+    title = re.sub(r"\s*[–—-]\s*(Johann Wolfgang von Goethe|Friedrich Schiller|Immanuel Kant)\s*$", "", title, flags=re.I)
+
+    seen: set[str] = set()
+    chapters: list[tuple[int, str]] = []
+    pat = re.compile(rf"^{re.escape(book_url)}/chapter/(\d+)/?$")
+    for a in soup.find_all("a", href=True):
+        href = a["href"].split("?")[0].split("#")[0]
+        m = pat.match(href)
+        if m and href not in seen:
+            seen.add(href)
+            chapters.append((int(m.group(1)), href))
+    chapters.sort()
+    return (title, [u for _, u in chapters])
+
+
+# ---- text extraction -------------------------------------------------------
+
+def extract_chapter_text(chapter_url: str) -> str | None:
+    html = fetch(chapter_url)
+    if not html:
+        return None
+    soup = BeautifulSoup(html, "html.parser")
+    # erste Instanz = sichtbarer Inhalt; zweite = Lesemodus-Duplikat
+    node = soup.find(class_="book-reader__chapter-text")
+    if not node:
+        return None
+    text = node.get_text(separator="\n", strip=False)
+    # whitespace normalisieren, aber Absätze erhalten
+    text = re.sub(r"[ \t]+", " ", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
+
+
+def is_german(text: str) -> tuple[bool, int, int]:
+    sample = text[:200_000].lower()
+    de = sum(sample.count(m) for m in
+             [" der ", " die ", " das ", " und ", " ist ", " nicht ",
+              " sich ", " ein ", " mit ", " auch ", " wenn ", " nur ",
+              " wird ", " werden ", " sind ", " ich ", " aber "])
+    en = sum(sample.count(m) for m in
+             [" the ", " and ", " of ", " to ", " is ", " that ",
+              " it ", " was ", " for ", " with ", " which ", " he ",
+              " as ", " be ", " have ", " but ", " are "])
+    return de > en, de, en
+
+
+# ---- main ------------------------------------------------------------------
+
+def separator(author: str, title: str, source_url: str) -> str:
     line = "=" * 80
-    return f"""
-
-{line}
-{line}
-  AUTOR: {author}
-  WERK:  {title}
-  Quelle: Project Gutenberg (ID: {gutenberg_id}) | gutenberg.org
-{line}
-{line}
-
-"""
+    return (f"\n\n{line}\n{line}\n"
+            f"  AUTOR: {author}\n"
+            f"  WERK:  {title}\n"
+            f"  Quelle: {source_url}\n"
+            f"{line}\n{line}\n\n")
 
 
-def main():
-    print(f"Starte Download → wird gespeichert als: {OUTPUT_FILE}\n")
+def main() -> None:
+    only_author = None
+    if len(sys.argv) >= 3 and sys.argv[1] == "--only":
+        only_author = sys.argv[2].upper()
+        if only_author not in {a[0] for a in AUTHORS}:
+            print(f"Unbekannter Autor: {only_author}")
+            print(f"Verfügbar: {', '.join(a[0] for a in AUTHORS)}")
+            sys.exit(1)
+
+    authors = [a for a in AUTHORS if only_author is None or a[0] == only_author]
+    mode = "a" if only_author else "w"
+    print(f"Lade Werke von Projekt Gutenberg-DE → {OUTPUT_FILE}"
+          + (f" (nur {only_author}, anhängen)" if only_author else "") + "\n")
     total_chars = 0
-    success_count = 0
-    fail_count = 0
-    failed_titles = []
+    works_ok = 0
+    works_skipped_lang = 0
+    works_empty = 0
+    skipped: list[str] = []
 
-    with open(OUTPUT_FILE, "w", encoding="utf-8") as out:
-        out.write("=" * 80 + "\n")
-        out.write("  GESAMMELTE DEUTSCHE WERKE: GOETHE · SCHILLER · KANT\n")
-        out.write("  Quelle: Project Gutenberg (gutenberg.org)\n")
-        out.write("  Alle Werke sind gemeinfrei (Public Domain)\n")
-        out.write("=" * 80 + "\n\n")
+    out_path = Path(OUTPUT_FILE)
+    with out_path.open(mode, encoding="utf-8") as out:
+        if not only_author:
+            out.write("=" * 80 + "\n")
+            out.write("  GESAMMELTE DEUTSCHE WERKE: GOETHE · SCHILLER · KANT\n")
+            out.write("  Quelle: Projekt Gutenberg-DE (projekt-gutenberg.org)\n")
+            out.write("  Alle Werke sind gemeinfrei (Public Domain).\n")
+            out.write("=" * 80 + "\n")
 
-        for author, works in WERKE.items():
-            out.write(f"\n\n{'#' * 80}\n")
-            out.write(f"##  {author}\n")
-            out.write(f"{'#' * 80}\n\n")
+        for author_name, author_slug, book_slug in authors:
+            print(f"\n=== {author_name} ===")
+            book_urls = list_book_urls(author_slug, book_slug)
+            print(f"  {len(book_urls)} Werke auf Autorenseite gefunden")
+            out.write(f"\n\n{'#' * 80}\n##  {author_name}\n{'#' * 80}\n")
+            time.sleep(REQUEST_DELAY_SEC)
 
-            for gid, title in works:
-                print(f"  [{author}] {title} (ID {gid}) ...", end=" ", flush=True)
-                text = download_text(gid)
+            for i, book_url in enumerate(book_urls, 1):
+                title, chapter_urls = list_chapter_urls(book_url)
+                short_title = (title or book_url.rsplit("/", 1)[-1])[:70]
+                print(f"  [{i:>3}/{len(book_urls)}] {short_title}  ({len(chapter_urls)} Kapitel)", flush=True)
+                time.sleep(REQUEST_DELAY_SEC)
 
-                if text:
-                    cleaned = strip_gutenberg_header_footer(text)
-                    out.write(separator(author, title, gid))
-                    out.write(cleaned)
-                    out.write("\n")
-                    chars = len(cleaned)
-                    total_chars += chars
-                    success_count += 1
-                    print(f"✓  ({chars:,} Zeichen)")
-                else:
-                    print(f"✗  (nicht verfügbar)")
-                    fail_count += 1
-                    failed_titles.append(f"{author}: {title} (ID {gid})")
+                if not chapter_urls:
+                    works_empty += 1
+                    skipped.append(f"{author_name}: {short_title} (keine Kapitel)")
+                    continue
 
-                time.sleep(0.5)
+                parts: list[str] = []
+                for ch_url in chapter_urls:
+                    txt = extract_chapter_text(ch_url)
+                    if txt:
+                        parts.append(txt)
+                    time.sleep(REQUEST_DELAY_SEC)
 
-    size_mb = os.path.getsize(OUTPUT_FILE) / (1024 * 1024)
+                if not parts:
+                    works_empty += 1
+                    skipped.append(f"{author_name}: {short_title} (Text leer)")
+                    continue
+
+                full = "\n\n".join(parts)
+                ok, de, en = is_german(full)
+                if not ok:
+                    works_skipped_lang += 1
+                    skipped.append(f"{author_name}: {short_title} (nicht deutsch | de={de}, en={en})")
+                    print(f"    ⊘  nicht deutsch (de={de}, en={en})")
+                    continue
+
+                out.write(separator(author_name, title or short_title, book_url))
+                out.write(full)
+                out.write("\n")
+                total_chars += len(full)
+                works_ok += 1
+                print(f"    ✓  {len(full):,} Zeichen")
+
+    size_mb = out_path.stat().st_size / (1024 * 1024)
     print(f"\n{'=' * 50}")
     print(f"Fertig!")
-    print(f"  Werke geladen:     {success_count}")
-    print(f"  Fehlgeschlagen:    {fail_count}")
-    if failed_titles:
-        for t in failed_titles:
-            print(f"    - {t}")
-    print(f"  Gesamtzeichen:     {total_chars:,}")
-    print(f"  Dateigröße:        {size_mb:.1f} MB")
-    print(f"  Datei:             {OUTPUT_FILE}")
+    print(f"  Werke gespeichert:      {works_ok}")
+    print(f"  Übersprungen (Sprache): {works_skipped_lang}")
+    print(f"  Übersprungen (leer):    {works_empty}")
+    if skipped:
+        print(f"\n  Details:")
+        for s in skipped:
+            print(f"    - {s}")
+    print(f"\n  Gesamtzeichen:  {total_chars:,}")
+    print(f"  Dateigröße:     {size_mb:.1f} MB")
+    print(f"  Datei:          {OUTPUT_FILE}")
 
 
 if __name__ == "__main__":

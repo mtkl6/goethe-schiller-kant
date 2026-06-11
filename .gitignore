@@ -1,0 +1,28 @@
+# ---- generated data & artifacts (regenerate with the pipeline) -------------
+# input.txt            <- data.py
+# tokenizer.json       <- train_tokenizer.py
+# *.bin                <- pretrain.py / prepare_chat_data.py
+# *.pt                 <- pretrain.py / finetune_chat.py
+input.txt
+tokenizer.json
+*.bin
+*.pt
+chat_samples.txt
+*_sample.txt
+
+# ---- superseded earlier iterations (kept locally, not published) -----------
+# bigram.py = minimal char-level baseline; gpt.py = v2, replaced by model.py
+bigram.py
+gpt.py
+backup_v1_charlevel/
+backup_v2_bpe/
+runs_v3_small/
+
+# ---- python / env ----------------------------------------------------------
+.venv/
+__pycache__/
+*.py[cod]
+
+# ---- os / editor -----------------------------------------------------------
+.DS_Store
+.claude/
