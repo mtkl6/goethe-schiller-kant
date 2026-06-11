@@ -1,5 +1,10 @@
 # Dichter & Denker
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
+[![PyTorch](https://img.shields.io/badge/PyTorch-2.0%2B-ee4c2c.svg)](https://pytorch.org/)
+[![Model on HF](https://img.shields.io/badge/%F0%9F%A4%97%20Model-mtkl6%2Fdichter--denker-ffce1c.svg)](https://huggingface.co/mtkl6/dichter-denker)
+
 A small GPT trained **from scratch** on the German classics, fine-tuned into a
 chat model you can talk to as **Goethe, Schiller, Kant, Lessing, Kleist,
 Hölderlin, Novalis or Herder**.
@@ -26,6 +31,29 @@ Kant:  Wenn wir uns nun selbst in der Welt verachtend verhalten müssen:
 > *style transfer*, not *question answering*. It shines on short exchanges
 > phrased in classic style (`Sagt mir, Herr Geheimrat, …`). See
 > [Limitations](#limitations).
+
+## Example conversations
+
+Unedited samples (temperature 0.6–0.8). The model stays in each author's
+register — discursive Goethe, aphoristic Kant — without ever leaving the
+18th/19th-century idiom it was trained on:
+
+```text
+[Kant]
+Du:    Was ist die Pflicht des Menschen?
+Kant:  Wenn wir uns nun selbst in der Welt verachtend verhalten müssen:
+       was können wir tun?
+
+[Goethe]
+Du:    Woher kommt die wahre Kunst?
+Goethe: Ich bin ein großer Mann, aber ich kenne den schönen Alten; sie sind
+        von jeher mit erzogen worden. Aber wir haben nicht mehr gelesen, als
+        wenn er nun auch nur auf seine Weise behandelte …
+```
+
+It free-associates rather than answers — that is the honest ceiling of a 42M
+model trained on ~13M tokens (see [Limitations](#limitations)) — but the voice
+is unmistakably period German.
 
 ---
 
@@ -121,7 +149,7 @@ python chat.py
 ### Option B — reproduce the whole thing from scratch
 
 ```bash
-python data.py                 # scrape corpus  -> input.txt   (~1 h, polite 1s delay)
+python data.py                 # fetch corpus   -> input.txt   (~1 h; see Data & licensing first)
 python train_tokenizer.py      # train BPE       -> tokenizer.json
 python prepare_chat_data.py    # mine dialogue   -> chat_tokens.bin
 python pretrain.py             # pretrain        -> pretrain_final.pt   (hours on MPS)
@@ -156,11 +184,23 @@ sample_all.py          free-form sampling from checkpoints
 
 The **code** is MIT-licensed (see [LICENSE](LICENSE)).
 
-The **texts** are sourced from [Projekt Gutenberg-DE](https://projekt-gutenberg.org)
-and are in the public domain (the authors died well over a century ago). The
-corpus is not redistributed in this repo — `data.py` fetches it directly from
-the source, with a polite 1-second delay between requests. Please scrape
-responsibly.
+The **texts** themselves are in the public domain — the authors died well over a
+century ago, so their works are free of copyright in Germany, the EU and the US.
+This repository does **not** redistribute any text: `data.py` fetches it on your
+machine, and the corpus (`input.txt`) is gitignored.
+
+> [!IMPORTANT]
+> **`data.py` is provided for personal and research use. You are responsible for
+> how you use it.** The default source, [Projekt Gutenberg-DE](https://projekt-gutenberg.org),
+> has its own terms of use, and its `robots.txt` disallows AI-training crawlers
+> (`GPTBot`, `ClaudeBot`, `CCBot`, `Google-Extended`, …). The public-domain
+> *texts* are free to use, but please respect the *source site's* wishes: review
+> its terms before scraping, keep the polite 1-second delay (or increase it), and
+> don't run bulk/automated jobs against it at scale. If you need an unambiguously
+> reuse-friendly source, point the scraper at one with explicit open terms —
+> e.g. [Deutsches Textarchiv](https://www.deutschestextarchiv.de),
+> [Wikisource](https://de.wikisource.org) (CC BY-SA), or
+> [Project Gutenberg US](https://www.gutenberg.org).
 
 ## Limitations
 

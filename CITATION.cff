@@ -1,0 +1,23 @@
+cff-version: 1.2.0
+message: "If you use this software or model, please cite it as below."
+title: "Dichter & Denker: a from-scratch German classics persona chat model"
+abstract: >-
+  A 42M-parameter nanoGPT-style transformer trained from scratch on the German
+  classics (Goethe, Schiller, Kant, Lessing, Kleist, Hölderlin, Novalis,
+  Herder) and fine-tuned into a persona chat model, with a custom German BPE
+  tokenizer. No pretrained weights.
+type: software
+authors:
+  - alias: mtkl6
+    given-names: Moritz
+repository-code: "https://github.com/mtkl6/goethe-schiller-kant"
+url: "https://huggingface.co/mtkl6/dichter-denker"
+license: MIT
+keywords:
+  - language-model
+  - gpt
+  - from-scratch
+  - german
+  - nanogpt
+  - pytorch
+date-released: "2026-06-11"

@@ -26,3 +26,6 @@ __pycache__/
 # ---- os / editor -----------------------------------------------------------
 .DS_Store
 .claude/
+
+# HF publish staging
+hf_upload/
